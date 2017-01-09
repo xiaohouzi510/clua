@@ -1,6 +1,8 @@
 #include <lua.hpp>
+#include <string.h>
 
 #define STUDENT "student" 
+int g_hook_key = 0;
 
 struct student
 {
@@ -105,9 +107,72 @@ static int l_one(lua_State *L)
 	return 0;
 }
 
+int make_mask(const char* mode)
+{
+	int mask = 0;
+	if(strchr(mode,'c'))
+	{
+		mask |= LUA_MASKCALL;
+	}
+
+	if(strchr(mode,'r'))
+	{
+		mask |= LUA_MASKRET;
+	}
+
+	if(strchr(mode,'l'))
+	{
+		mask |= LUA_MASKLINE;
+	}
+
+	return mask;
+}
+
+static void l_hook(lua_State *L,lua_Debug *ar)
+{
+	static const char *hook_names[] =
+	{
+		"call","return","line","count","tail call"
+	};
+	lua_rawgeti(L,LUA_REGISTRYINDEX,g_hook_key);	
+	luaL_checktype(L,-1,LUA_TFUNCTION);
+	lua_pushstring(L,hook_names[(int)ar->event]);
+	if(lua_pcall(L,1,1,0) != 0)
+	{
+		printf("call error:%s\n",lua_tostring(L,-1));
+		return ;
+	}
+	if(lua_toboolean(L,-1))
+	{
+		lua_yield(L,0);
+	}
+}
+
+static int set_hook(lua_State *L)
+{
+	if(lua_type(L,1) != LUA_TFUNCTION)	
+	{
+		printf("stack 1 not a function\n");
+		return 0;
+	}
+	unsigned int len = 0;
+	const char *mode = luaL_checklstring(L,2,&len);
+	int mask = make_mask(mode);
+	lua_Hook fun = NULL;
+	if(mode != 0)
+	{
+		lua_pushvalue(L,1);
+		g_hook_key = luaL_ref(L,LUA_REGISTRYINDEX);	
+		fun = l_hook;
+	}
+	lua_sethook(L,fun,mask,0);	
+	return 0;
+}
+
 static const struct luaL_Reg mylib[] = 
 {
 	{"create",lcreate},
+	{"set_hook",set_hook},
 	{NULL,NULL}	
 };
 
